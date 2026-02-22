@@ -1,0 +1,4 @@
+DROP INDEX ON :Station(nom_clean);
+DROP INDEX ON :Station(ligne);
+DROP INDEX ON :Station(nom_clean, ligne);
+DROP INDEX ON :Station(x, y);

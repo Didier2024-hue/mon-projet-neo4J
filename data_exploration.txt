@@ -1,0 +1,79 @@
+// Question 1. Quel est le nombre de correspondances par station ?
+// *** Reponse 1 : Le nombre de correspondances est de 226
+MATCH ()-[c:CORRESPONDANCE]->()
+RETURN count(c) AS nombre_total_correspondances;
+
+// 2.Quel est le nombre de stations à moins de deux kilomètres de la station LADEFENSE  ?
+// *** Reponse 2 : Le nombre de station est de 2 : ["ESPLANADEDELADEFENSE", "PONTDENEUILLY"]
+MATCH (defense:Station {nom_clean: "LADEFENSE"}), (s:Station)
+WHERE s.nom_clean <> "LADEFENSE"
+WITH defense, s,
+     sqrt((s.x - defense.x)^2 + (s.y - defense.y)^2) AS distance
+WHERE distance < 2000
+RETURN collect(DISTINCT s.nom_clean) AS stations_proches,
+       count(DISTINCT s.nom_clean) AS nombre_stations_proches;
+
+// 3. Combien de temps faut-il pour aller en metro de LADEFENSE à CHATEAUDEVINCENNES ?
+// *** Reponse 3 : il faut 25 minutes environ (merci profile)
+MATCH (start:Station {nom_clean: 'LADEFENSE'}), (end:Station {nom_clean: 'CHATEAUDEVINCENNES'})
+MATCH path = shortestPath((start)-[:METRO*..30]->(end))
+WITH path, reduce(t=0, r IN relationships(path) | t + r.temps) AS total
+RETURN total AS temps_minutes;
+
+    
+// 4. Combien de temps faut-il pour aller à pied de LADEFENSE à CHATEAUDEVINCENNES ?
+// *** Reponse 4 : Le temps de marche est de 238 minutes
+MATCH (start:Station {nom_clean: 'LADEFENSE'}), (end:Station {nom_clean: 'CHATEAUDEVINCENNES'})
+RETURN round(sqrt((end.x - start.x)^2 + (end.y - start.y)^2)/1000/4 * 60) AS temps_marche_minutes;
+
+// 5. Est-il plus rapide de faire un changement à SAINTLAZARE pour aller de MONTPARNASSEBIENVENUE à GABRIELPERI ?
+// *** Reponse 5 : L'itinéraire direct est le plus rapide
+MATCH (start:Station {nom_clean: 'MONTPARNASSEBIENVENUE'})
+MATCH (end:Station {nom_clean: 'GABRIELPERI'})
+MATCH (change:Station {nom_clean: 'STLAZARE'})
+
+// Itinéraire direct
+MATCH path_direct = shortestPath((start)-[:METRO|CORRESPONDANCE*]->(end))
+WITH path_direct, 
+     reduce(time=0, r IN relationships(path_direct) | time + r.temps) AS trajet_direct,
+     start, end, change
+
+// Itinéraire avec changement
+MATCH path1 = shortestPath((start)-[:METRO|CORRESPONDANCE*]->(change))
+MATCH path2 = shortestPath((change)-[:METRO|CORRESPONDANCE*]->(end))
+WITH path_direct, trajet_direct,
+     [node IN nodes(path1) | node.nom_clean] + 
+     [node IN tail(nodes(path2)) | node.nom_clean] AS parcours_changement,
+     reduce(time=0, r IN relationships(path1) | time + r.temps) + 
+     reduce(time=0, r IN relationships(path2) | time + r.temps) AS trajet_avec_changement
+
+RETURN 
+  [node IN nodes(path_direct) | node.nom_clean] AS parcours_direct,
+  trajet_direct AS temps_minutes_direct,
+  size([r IN relationships(path_direct) WHERE type(r) = 'CORRESPONDANCE']) AS correspondances_direct,
+  
+  parcours_changement AS parcours_avec_changement,
+  trajet_avec_changement AS temps_minutes_avec_changement,
+  size([i IN range(0, size(parcours_changement)-2) 
+       WHERE parcours_changement[i] = parcours_changement[i+1]]) AS correspondances_avec_changement,
+  
+  CASE 
+    WHEN trajet_direct < trajet_avec_changement THEN 'Itinéraire direct plus rapide'
+    WHEN trajet_direct > trajet_avec_changement THEN 'Changement à SAINT-LAZARE recommandé'
+    ELSE 'Les deux options sont équivalentes'
+  END AS recommendation;
+  
+  
+// 6. Combien de stations se trouvent dans un rayon de 10 stations par train autour de SAINTLAZARE ?
+// *** Reponse 6 : Il y a 77 stations dans un rayon de 10 stations autour de SAINTLAZARE
+MATCH (start:Station {nom_clean: 'STLAZARE'})-[:METRO*1..10]->(s:Station)
+RETURN count(DISTINCT s) AS stations_dans_rayon;
+
+
+// 7. Combien de stations se trouvent dans un rayon de 20 minutes par train autour de SAINTLAZARE ?
+// *** Reponse 7 : Il y a 73 stations dans un rayon de 20 minutes autour de SAINT LAZARE
+MATCH path = (start:Station {nom_clean: 'STLAZARE'})-[:METRO*..10]->(s:Station)
+WITH s, reduce(total_time = 0, r IN relationships(path) | total_time + r.temps) AS temps_total
+WHERE temps_total <= 20 * 60 
+AND s <> start
+RETURN count(DISTINCT s) AS stations_dans_rayon;

@@ -1,0 +1,66 @@
+// 1. Nettoyage préalable - Supprime tout le graphe existant
+MATCH (n) DETACH DELETE n;
+
+// 7. Suppression des index
+// Lors d’un second lancement, vous pouvez décommenter les lignes du chapitre 7 ci-dessous.
+// Attention : j’utilise Neo4j Community Edition 4.0, qui ne supporte pas l’option DROP INDEX IF EXISTS.
+// Assurez-vous que les index existent avant d’exécuter ces commandes, sinon une erreur sera levée.
+//DROP INDEX ON :Station(nom_clean);
+//DROP INDEX ON :Station(nom_clean);
+//DROP INDEX ON :Station(ligne);
+//DROP INDEX ON :Station(nom_clean, ligne);
+//DROP INDEX ON :Station(x, y);
+
+
+// 2. Import des stations 
+LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/pauldechorgnat/cool-datasets/master/ratp/stations.csv' AS row
+MERGE (s:Station {nom_clean: row.nom_clean, ligne: row.ligne})
+SET 
+    s.nom_gare = row.nom_gare,
+    s.x = toFloat(row.x),
+    s.y = toFloat(row.y),
+    s.trafic = toInteger(row.Trafic),
+    s.ville = row.Ville;
+
+// 3. Création des correspondances entre lignes
+MATCH (s1:Station), (s2:Station)
+WHERE s1.nom_clean = s2.nom_clean AND s1.ligne < s2.ligne
+CREATE (s1)-[:CORRESPONDANCE {temps: 4}]->(s2)
+CREATE (s2)-[:CORRESPONDANCE {temps: 4}]->(s1);
+
+// 4. Import des liaisons ferroviaires
+LOAD CSV WITH HEADERS FROM 'https://raw.githubusercontent.com/pauldechorgnat/cool-datasets/master/ratp/liaisons.csv' AS row
+MATCH (start:Station {nom_clean: row.start, ligne: row.ligne})
+MATCH (stop:Station {nom_clean: row.stop, ligne: row.ligne})
+WITH start, stop, sqrt((stop.x - start.x)^2 + (stop.y - start.y)^2) AS distance
+CREATE (start)-[:METRO {
+    distance: distance,
+    temps: round((distance/1000)/40*60*100)/100
+}]->(stop)
+CREATE (stop)-[:METRO {
+    distance: distance,
+    temps: round((distance/1000)/40*60*100)/100
+}]->(start);
+
+// 5. Création des liaisons piétonnes 
+MATCH (s1:Station), (s2:Station)
+WHERE s1.nom_clean < s2.nom_clean AND id(s1) < id(s2) 
+WITH s1, s2, sqrt((s2.x-s1.x)^2 + (s2.y-s1.y)^2) AS distance
+WHERE distance < 1000 AND distance > 50 // entre deux stations qui sont espacées de moins d'un kilomètre
+CREATE (s1)-[:PIETON {
+    distance: distance,
+    temps: round((distance/1000)/4*60*100)/100
+}]->(s2)
+CREATE (s2)-[:PIETON {
+    distance: distance,
+    temps: round((distance/1000)/4*60*100)/100
+}]->(s1);
+
+// 6. Création des index
+CREATE INDEX ON :Station(nom_clean);
+CREATE INDEX ON :Station(ligne);
+CREATE INDEX ON :Station(nom_clean, ligne); 
+CREATE INDEX ON :Station(x, y);
+
+// 8. Statistiques de vérification finale
+MATCH (n) RETURN n;
